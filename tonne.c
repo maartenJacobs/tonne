@@ -28,6 +28,7 @@ void free_editor(editor *state)
     fclose(state->fd);
 
     // Free the remaining memory.
+    free(state->slice);
     free(state);
 }
 
