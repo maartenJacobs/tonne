@@ -7,6 +7,7 @@ typedef struct ncurses_window
 {
     WINDOW *win;
     int lines;
+    int cols;
 } ncurwin;
 
 typedef struct editor
@@ -34,6 +35,8 @@ void free_editor(editor *state)
 
 void update_and_print_file_slice(editor *state, unsigned int start, const unsigned int no_of_lines)
 {
+    wclear(state->winconf->win);
+
     // TODO: better slice handling. No point recalculating the entire slice.
     if (state->slice != NULL)
     {
@@ -56,13 +59,14 @@ void update_and_print_file_slice(editor *state, unsigned int start, const unsign
     {
         line_result = getline(&line, &line_size, state->fd);
         start--;
+
+        if (line_result == EOF)
+        {
+            return;
+        }
+        // TODO: handle file error
     }
     // Handle a file that has fewer lines than the offset.
-    if (line_result == EOF)
-    {
-        return;
-    }
-    // TODO: handle file error
 
     // Get the number of lines from the offset.
     unsigned int i = 0, slice_offset = 0;
@@ -92,16 +96,77 @@ void init_window(editor *state)
     state->winconf = malloc(sizeof(ncurwin));
     state->winconf->win = initscr();
     state->winconf->lines = LINES;
+    state->winconf->cols = COLS;
     cbreak();                          // Do not wait for ENTER to send characters.
     raw();                             // Pass on any entered characters.
     noecho();                          // Do not print entered characters.
     keypad(state->winconf->win, true); // Enable handling of function keys and arrow keys.
 
     // Print the first n lines of the file to the screen.
+    state->slice = NULL;
     update_and_print_file_slice(state, 0, state->winconf->lines);
 
     // Move the cursor to the start position.
     wmove(state->winconf->win, 0, 0);
+}
+
+// TODO: BUG - does not recognise next line past line count - 2
+bool has_next_line(editor *state)
+{
+    size_t line_size = sizeof(char) * 4096;
+    char *line = malloc(line_size);
+    ssize_t line_result;
+    line_result = getline(&line, &line_size, state->fd);
+    if (line_result != -1)
+    {
+        // TODO: handle file error.
+    }
+    if (line_result == EOF)
+    {
+        return false;
+    }
+
+    // Free used resources.
+    free(line);
+
+    // Undo line read.
+    fseek(state->fd, strlen(line), SEEK_CUR);
+
+    // Report that there is a next line.
+    return true;
+}
+
+bool has_previous_line(editor *state)
+{
+    // Store the original position in the file.
+    fpos_t *pos = malloc(sizeof(fpos_t));
+    fgetpos(state->fd, pos);
+
+    // Move the file descriptor to the beginning of the slice
+    // minus 1 character.
+    fseek(state->fd, -strlen(state->slice) - 1, SEEK_CUR);
+    int prev = fgetc(state->fd);
+
+    // Restore the original position.
+    fsetpos(state->fd, pos);
+    free(pos);
+
+    return prev == '\n';
+}
+
+void move_slice(editor *state, int offset_in_lines)
+{
+    update_and_print_file_slice(state, state->slice_start + offset_in_lines, state->winconf->lines);
+}
+
+bool is_cursor_at_bottom_right_end(editor *state, int x, int y)
+{
+    return x == state->winconf->cols - 1 && y == state->winconf->lines - 1;
+}
+
+bool is_cursor_at_top_left_end(int x, int y)
+{
+    return x == 0 && y == 0;
 }
 
 int main(int argc, char *argv[])
@@ -142,16 +207,21 @@ int main(int argc, char *argv[])
             keep_processing = false;
             break;
         case KEY_LEFT:
-            if (x == 0)
+            if (is_cursor_at_top_left_end(x, y) && state->slice_start != 0)
             {
-                if (y == 0)
-                {
-                    // TODO: check if there is a line above this one in the file.
-                    break;
-                }
+                move_slice(state, -1);
 
                 // Go to the previous line at the end.
-                wmove(state->winconf->win, y - 1, COLS - 1);
+                wmove(state->winconf->win, 0, state->winconf->cols - 1);
+            }
+            else if (is_cursor_at_top_left_end(x, y))
+            {
+                // We are at the top left corner and there are no lines before this line.
+            }
+            else if (x == 0)
+            {
+                // Go to the previous line at the end.
+                wmove(state->winconf->win, y - 1, state->winconf->cols - 1);
             }
             else
             {
@@ -159,14 +229,16 @@ int main(int argc, char *argv[])
             }
             break;
         case KEY_RIGHT:
-            if (x == COLS - 1)
+            if (is_cursor_at_bottom_right_end(state, x, y) && has_next_line(state))
             {
-                if (y == LINES - 1)
-                {
-                    // TODO: check if there is a line above this one in the file.
-                    break;
-                }
-
+                move_slice(state, 1);
+            }
+            else if (is_cursor_at_bottom_right_end(state, x, y))
+            {
+                // There is no next line and we are at the end of the line.
+            }
+            else if (x == state->winconf->cols - 1)
+            {
                 // Go to the next line at the start.
                 wmove(state->winconf->win, y + 1, 0);
             }
@@ -176,20 +248,35 @@ int main(int argc, char *argv[])
             }
             break;
         case KEY_UP:
-            if (y == 0)
+            if (y == 0 && has_previous_line(state))
             {
-                // TODO: check if there is a line above this one in the file.
-                break;
+                move_slice(state, -1);
+                wmove(state->winconf->win, 0, x);
             }
-            wmove(state->winconf->win, y - 1, x);
+            else if (y == 0)
+            {
+                // There are no previous lines and we are at the start of the screen.
+            }
+            else
+            {
+                wmove(state->winconf->win, y - 1, x);
+            }
             break;
         case KEY_DOWN:
-            if (y == LINES)
+            if (y == state->winconf->lines - 1 && has_next_line(state))
             {
-                // TODO: check if there is a line below this one in the file.
-                break;
+                // TODO: x will now be the length of the new line, rather than the previous x
+                move_slice(state, 1);
+                wmove(state->winconf->win, y, x);
             }
-            wmove(state->winconf->win, y + 1, x);
+            else if (y == state->winconf->lines - 1)
+            {
+                // We are at the bottom line and there are no lines after this line.
+            }
+            else
+            {
+                wmove(state->winconf->win, y + 1, x);
+            }
             break;
         }
     } while (keep_processing);
