@@ -19,6 +19,13 @@ typedef struct editor
     int no_of_lines;
 } editor;
 
+void fatal(const char *message)
+{
+    puts("UNABLE TO CONTINUE");
+    puts(message);
+    exit(255);
+}
+
 void free_editor(editor *state)
 {
     // Close the ncurses window.
@@ -55,7 +62,7 @@ void update_and_print_file_slice(editor *state, unsigned int start, const unsign
 
     // First skip the lines before the start.
     fseek(state->fd, 0, SEEK_SET);
-    while (start != 0 && line_result != EOF && line_result != -1)
+    while (start != 0)
     {
         line_result = getline(&line, &line_size, state->fd);
         start--;
@@ -115,8 +122,16 @@ bool has_next_line(editor *state)
 {
     size_t line_size = sizeof(char) * 4096;
     char *line = malloc(line_size);
-    ssize_t line_result;
-    line_result = getline(&line, &line_size, state->fd);
+    if (line == NULL)
+    {
+        fatal("Unable to allocate memory for line");
+    }
+    line[0] = '\0';
+
+    ssize_t line_result = getline(&line, &line_size, state->fd);
+    size_t line_len = strlen(line);
+    free(line);
+
     if (line_result != -1)
     {
         // TODO: handle file error.
@@ -126,11 +141,8 @@ bool has_next_line(editor *state)
         return false;
     }
 
-    // Free used resources.
-    free(line);
-
     // Undo line read.
-    fseek(state->fd, strlen(line), SEEK_CUR);
+    fseek(state->fd, -line_len, SEEK_CUR);
 
     // Report that there is a next line.
     return true;
