@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include "fslice.h"
 
 typedef struct ncurses_window
 {
@@ -12,11 +14,8 @@ typedef struct ncurses_window
 
 typedef struct editor
 {
-    FILE *fd;
     ncurwin *winconf;
-    char *slice; // Lines of the file that are currently visible.
-    int slice_start;
-    int no_of_lines;
+    fslice *slice; // Lines of the file that are currently visible.
 } editor;
 
 void fatal(const char *message)
@@ -32,68 +31,21 @@ void free_editor(editor *state)
     endwin();
     free(state->winconf);
 
-    // Close the opened file.
-    fclose(state->fd);
+    // Free the slice of the file.
+    free_slice(state->slice);
+    free(state->slice);
 
     // Free the remaining memory.
-    free(state->slice);
     free(state);
 }
 
 void update_and_print_file_slice(editor *state, unsigned int start, const unsigned int no_of_lines)
 {
-    wclear(state->winconf->win);
-
-    // TODO: better slice handling. No point recalculating the entire slice.
-    if (state->slice != NULL)
-    {
-        free(state->slice);
-    }
-    state->slice = malloc(sizeof(char) * 4096 * state->winconf->lines);
-    state->slice[0] = '\0';
-    state->slice_start = start;
-    state->no_of_lines = no_of_lines;
-
-    // TODO: limit line size to <columns> characters.
-    // TODO: deal with lines longer than <columns> characters.
-    size_t line_size = sizeof(char) * 4096;
-    char *line = malloc(line_size);
-    ssize_t line_result;
-
-    // First skip the lines before the start.
-    fseek(state->fd, 0, SEEK_SET);
-    while (start != 0)
-    {
-        line_result = getline(&line, &line_size, state->fd);
-        start--;
-
-        if (line_result == EOF)
-        {
-            return;
-        }
-        // TODO: handle file error
-    }
-    // Handle a file that has fewer lines than the offset.
-
-    // Get the number of lines from the offset.
-    unsigned int i = 0, slice_offset = 0;
-    size_t line_len;
-    do
-    {
-        line_result = getline(&line, &line_size, state->fd);
-        line_len = strlen(line);
-
-        // Store the line.
-        memcpy(state->slice + slice_offset, line, line_len);
-        slice_offset += line_len;
-    } while (line_result != EOF && line_result != -1 && ++i < no_of_lines);
-    state->slice[slice_offset] = '\0';
-
-    // Free the used resources.
-    free(line);
+    update_slice(state->slice, start, no_of_lines);
 
     // Print the slice.
-    waddstr(state->winconf->win, state->slice);
+    wclear(state->winconf->win);
+    waddstr(state->winconf->win, state->slice->line_data);
     wrefresh(state->winconf->win);
 }
 
@@ -110,65 +62,15 @@ void init_window(editor *state)
     keypad(state->winconf->win, true); // Enable handling of function keys and arrow keys.
 
     // Print the first n lines of the file to the screen.
-    state->slice = NULL;
     update_and_print_file_slice(state, 0, state->winconf->lines);
 
     // Move the cursor to the start position.
     wmove(state->winconf->win, 0, 0);
 }
 
-// TODO: BUG - does not recognise next line past line count - 2
-bool has_next_line(editor *state)
-{
-    size_t line_size = sizeof(char) * 4096;
-    char *line = malloc(line_size);
-    if (line == NULL)
-    {
-        fatal("Unable to allocate memory for line");
-    }
-    line[0] = '\0';
-
-    ssize_t line_result = getline(&line, &line_size, state->fd);
-    size_t line_len = strlen(line);
-    free(line);
-
-    if (line_result != -1)
-    {
-        // TODO: handle file error.
-    }
-    if (line_result == EOF)
-    {
-        return false;
-    }
-
-    // Undo line read.
-    fseek(state->fd, -line_len, SEEK_CUR);
-
-    // Report that there is a next line.
-    return true;
-}
-
-bool has_previous_line(editor *state)
-{
-    // Store the original position in the file.
-    fpos_t *pos = malloc(sizeof(fpos_t));
-    fgetpos(state->fd, pos);
-
-    // Move the file descriptor to the beginning of the slice
-    // minus 1 character.
-    fseek(state->fd, -strlen(state->slice) - 1, SEEK_CUR);
-    int prev = fgetc(state->fd);
-
-    // Restore the original position.
-    fsetpos(state->fd, pos);
-    free(pos);
-
-    return prev == '\n';
-}
-
 void move_slice(editor *state, int offset_in_lines)
 {
-    update_and_print_file_slice(state, state->slice_start + offset_in_lines, state->winconf->lines);
+    update_and_print_file_slice(state, state->slice->start_line + offset_in_lines, state->winconf->lines);
 }
 
 bool is_cursor_at_bottom_right_end(editor *state, int x, int y)
@@ -192,12 +94,14 @@ int main(int argc, char *argv[])
 
     // Build the editor state.
     editor *state = malloc(sizeof(editor));
+    state->slice = malloc(sizeof(fslice));
 
     // Open the file for reading.
-    state->fd = fopen(argv[1], "r");
-    if (state->fd == NULL)
+    state->slice->fd = fopen(argv[1], "r");
+    if (state->slice->fd == NULL)
     {
         puts("Unable to open file");
+        free(state->slice);
         free(state);
         return 1;
     }
@@ -219,7 +123,7 @@ int main(int argc, char *argv[])
             keep_processing = false;
             break;
         case KEY_LEFT:
-            if (is_cursor_at_top_left_end(x, y) && state->slice_start != 0)
+            if (is_cursor_at_top_left_end(x, y) && state->slice->start_line != 0)
             {
                 move_slice(state, -1);
 
@@ -241,7 +145,7 @@ int main(int argc, char *argv[])
             }
             break;
         case KEY_RIGHT:
-            if (is_cursor_at_bottom_right_end(state, x, y) && has_next_line(state))
+            if (is_cursor_at_bottom_right_end(state, x, y) && has_next_line(state->slice))
             {
                 move_slice(state, 1);
             }
@@ -260,7 +164,7 @@ int main(int argc, char *argv[])
             }
             break;
         case KEY_UP:
-            if (y == 0 && has_previous_line(state))
+            if (y == 0 && has_previous_line(state->slice))
             {
                 move_slice(state, -1);
                 wmove(state->winconf->win, 0, x);
@@ -275,7 +179,7 @@ int main(int argc, char *argv[])
             }
             break;
         case KEY_DOWN:
-            if (y == state->winconf->lines - 1 && has_next_line(state))
+            if (y == state->winconf->lines - 1 && has_next_line(state->slice))
             {
                 // TODO: x will now be the length of the new line, rather than the previous x
                 move_slice(state, 1);

@@ -3,8 +3,8 @@ CFLAGS=-Wall -I.
 VALGRIND_CFLAGS=$(CFLAGS) -O0 -g
 LDFLAGS=-lncurses
 
-tonne: tonne.o
-	$(CC) -o tonne tonne.o $(CFLAGS) $(LDFLAGS)
+tonne: tonne.o fslice.o
+	$(CC) -o tonne tonne.o fslice.o $(CFLAGS) $(LDFLAGS)
 
 tonne-memcheck: tonne.c
 	$(CC) -o tonne-memcheck tonne.c $(VALGRIND_CFLAGS) $(LDFLAGS)
