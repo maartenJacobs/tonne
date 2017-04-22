@@ -4,17 +4,40 @@
 #include <stdbool.h>
 #include "fslice.h"
 
-void update_slice(fslice *slice, unsigned int start, const unsigned int no_of_lines)
+void free_lines(fslice *slice)
+{
+    fline *prev = NULL,
+          *curr = slice->line_data;
+    while (curr != NULL)
+    {
+        free(curr->data);
+        prev = curr;
+        curr = curr->next;
+        free(prev);
+    }
+}
+
+size_t slice_len(fslice *slice)
+{
+    fline *curr = slice->line_data;
+    size_t len = 0;
+    while (curr != NULL)
+    {
+        len += curr->len;
+        curr = curr->next;
+    }
+    return len;
+}
+
+void update_slice(fslice *slice, unsigned int start, unsigned int no_of_lines)
 {
     // TODO: better slice handling. No point recalculating the entire slice.
     if (slice->line_data != NULL)
     {
-        free(slice->line_data);
+        free_lines(slice);
     }
     slice->start_line = start;
     slice->no_of_lines = no_of_lines;
-    slice->line_data = malloc(sizeof(char) * 4096 * slice->no_of_lines);
-    slice->line_data[0] = '\0';
 
     // TODO: limit line size to <columns> characters.
     // TODO: deal with lines longer than <columns> characters.
@@ -37,19 +60,35 @@ void update_slice(fslice *slice, unsigned int start, const unsigned int no_of_li
     }
     // Handle a file that has fewer lines than the offset.
 
-    // Get the number of lines from the offset.
-    unsigned int i = 0, slice_offset = 0;
-    size_t line_len;
-    do
+    // Get the lines from the offset.
+    size_t line_len = 0;
+    fline *curr = NULL, *prev = NULL;
+    while (no_of_lines-- > 0)
     {
         line_result = getline(&line, &line_size, slice->fd);
         line_len = strlen(line);
 
+        if (line_result == EOF || line_result == -1)
+        {
+            break;
+        }
+
         // Store the line.
-        memcpy(slice->line_data + slice_offset, line, line_len);
-        slice_offset += line_len;
-    } while (line_result != EOF && line_result != -1 && ++i < slice->no_of_lines);
-    slice->line_data[slice_offset] = '\0';
+        curr = malloc(sizeof(fline));
+        curr->next = NULL;
+        curr->len = line_len;
+        curr->data = malloc(sizeof(char) * curr->len);
+        memcpy(curr->data, line, curr->len);
+        if (prev == NULL)
+        {
+            slice->line_data = curr;
+        }
+        else
+        {
+            prev->next = curr;
+        }
+        prev = curr;
+    }
 
     // Free the used resources.
     free(line);
@@ -58,10 +97,9 @@ void update_slice(fslice *slice, unsigned int start, const unsigned int no_of_li
 void free_slice(fslice *slice)
 {
     fclose(slice->fd);
-    free(slice->line_data);
+    free_lines(slice);
 }
 
-// TODO: BUG - does not recognise next line past line count - 2
 bool has_next_line(fslice *slice)
 {
     size_t line_size = sizeof(char) * 4096;
@@ -100,7 +138,7 @@ bool has_previous_line(fslice *slice)
 
     // Move the file descriptor to the beginning of the slice
     // minus 1 character.
-    fseek(slice->fd, -strlen(slice->line_data) - 1, SEEK_CUR);
+    fseek(slice->fd, -slice_len(slice) - 1, SEEK_CUR);
     int prev = fgetc(slice->fd);
 
     // Restore the original position.
@@ -108,4 +146,14 @@ bool has_previous_line(fslice *slice)
     free(pos);
 
     return prev == '\n';
+}
+
+fslice *new_slice()
+{
+    fslice *slice = malloc(sizeof(fslice));
+    slice->line_data = NULL;
+    slice->fd = NULL;
+    slice->no_of_lines = 0;
+    slice->start_line = 0;
+    return slice;
 }

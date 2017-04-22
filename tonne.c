@@ -39,13 +39,25 @@ void free_editor(editor *state)
     free(state);
 }
 
+// TODO: long lines have been truncated. Display horizontal ellipsis and allow slice movement to
+// display the rest of the line.
 void update_and_print_file_slice(editor *state, unsigned int start, const unsigned int no_of_lines)
 {
     update_slice(state->slice, start, no_of_lines);
 
     // Print the slice.
     wclear(state->winconf->win);
-    waddstr(state->winconf->win, state->slice->line_data);
+    fline *curr = state->slice->line_data;
+    while (curr != NULL)
+    {
+        waddnstr(state->winconf->win, curr->data,
+                 curr->len > state->winconf->cols ? state->winconf->cols - 1 : curr->len);
+        if (curr->len > state->winconf->cols)
+        {
+            waddch(state->winconf->win, '\n');
+        }
+        curr = curr->next;
+    }
     wrefresh(state->winconf->win);
 }
 
@@ -94,7 +106,7 @@ int main(int argc, char *argv[])
 
     // Build the editor state.
     editor *state = malloc(sizeof(editor));
-    state->slice = malloc(sizeof(fslice));
+    state->slice = new_slice();
 
     // Open the file for reading.
     state->slice->fd = fopen(argv[1], "r");
