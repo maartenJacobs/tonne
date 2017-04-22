@@ -9,10 +9,11 @@ typedef struct file_line
 
 typedef struct file_slice
 {
-    FILE *fd;         // File of which we have a slice.
-    fline *line_data; // Linked list of lines of the file that can be displayed.
-    int start_line;   // Line where the slice starts in the file.
-    int no_of_lines;  // Number of lines of the slice.
+    FILE *fd;              // File of which we have a slice.
+    fline *line_data;      // Linked list of lines of the file that can be displayed.
+    int start_line;        // Line where the slice starts in the file.
+    long int start_offset; // Offset in bytes where the slice starts in the file.
+    int no_of_lines;       // Number of lines of the slice.
 } fslice;
 
 fslice *new_slice();

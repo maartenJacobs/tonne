@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include "fslice.h"
 
+#define BUFFER_SIZE 255
+
 void free_lines(fslice *slice)
 {
     fline *prev = NULL,
@@ -39,9 +41,7 @@ void update_slice(fslice *slice, unsigned int start, unsigned int no_of_lines)
     slice->start_line = start;
     slice->no_of_lines = no_of_lines;
 
-    // TODO: limit line size to <columns> characters.
-    // TODO: deal with lines longer than <columns> characters.
-    size_t line_size = sizeof(char) * 4096;
+    size_t line_size = sizeof(char) * BUFFER_SIZE;
     char *line = malloc(line_size);
     ssize_t line_result;
 
@@ -59,6 +59,9 @@ void update_slice(fslice *slice, unsigned int start, unsigned int no_of_lines)
         // TODO: handle file error
     }
     // Handle a file that has fewer lines than the offset.
+
+    // Store the start position of the slice.
+    slice->start_offset = ftell(slice->fd);
 
     // Get the lines from the offset.
     size_t line_len = 0;
@@ -102,7 +105,7 @@ void free_slice(fslice *slice)
 
 bool has_next_line(fslice *slice)
 {
-    size_t line_size = sizeof(char) * 4096;
+    size_t line_size = sizeof(char) * 2;
     char *line = malloc(line_size);
     if (line == NULL)
     {

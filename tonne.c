@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include "fslice.h"
 
+#define BUFFER_SIZE 255
+
 typedef struct ncurses_window
 {
     WINDOW *win;
@@ -204,6 +206,59 @@ int main(int argc, char *argv[])
             else
             {
                 wmove(state->winconf->win, y + 1, x);
+            }
+            break;
+        default:
+            if (comm > 0 && comm < 127)
+            {
+                char *wfname = malloc(sizeof(char) * strlen(argv[1]) + 2);
+                wfname[0] = '~';
+                strcpy(wfname + 1, argv[1]);
+                FILE *wfd = fopen(wfname, "w");
+
+                // Write the characters before the position we want to manipulate.
+                long int add_offset = state->slice->start_offset + x;
+                int row_offset = y;
+                fline *line = state->slice->line_data;
+                while (line != NULL && row_offset-- > 0)
+                {
+                    add_offset += line->len;
+                    line = line->next;
+                }
+                char *buf = malloc(sizeof(char) * BUFFER_SIZE);
+                fseek(state->slice->fd, 0, SEEK_SET);
+                unsigned long int read_n = 0;
+                for (long int offset = 0; offset < add_offset; offset += read_n)
+                {
+                    read_n = (add_offset - offset + 1) > BUFFER_SIZE ? BUFFER_SIZE : (add_offset - offset + 1);
+                    if (fgets(buf, read_n, state->slice->fd) == NULL)
+                    {
+                        fatal("Unable to read from slice fd");
+                    }
+                    read_n = strlen(buf);
+                    fputs(buf, wfd);
+                }
+
+                // Write the character we wanted to insert.
+                fputc(comm, wfd);
+
+                // Write the characters after the inserted character.
+                size_t line_size = sizeof(char) * BUFFER_SIZE;
+                while (getline(&buf, &line_size, state->slice->fd) != -1)
+                {
+                    fputs(buf, wfd);
+                }
+                free(buf);
+                fflush(wfd);
+
+                // Overwrite the file.
+                rename(wfname, argv[1]);
+                fclose(wfd);
+                free(wfname);
+                state->slice->fd = freopen(argv[1], "r", state->slice->fd);
+
+                update_and_print_file_slice(state, state->slice->start_line, state->winconf->lines);
+                wmove(state->winconf->win, y, x);
             }
             break;
         }
