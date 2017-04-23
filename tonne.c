@@ -97,6 +97,75 @@ bool is_cursor_at_top_left_end(int x, int y)
     return x == 0 && y == 0;
 }
 
+#define OP_ADD 1
+#define OP_DELETE 2
+
+void alter_file(fslice *slice, char *fname, const short op, unsigned long int op_offset, char arg)
+{
+    // Make a temporary file in the same directory. The temporary
+    // file name will be the same as the edited file, but with a tilde
+    // at the start.
+    char *wfname = malloc(sizeof(char) * strlen(fname) + 2);
+    wfname[0] = '~';
+    strcpy(wfname + 1, fname);
+    FILE *wfd = fopen(wfname, "w");
+
+    // Write the characters before the position we want to manipulate.
+    char *buf = malloc(sizeof(char) * BUFFER_SIZE);
+    fseek(slice->fd, 0, SEEK_SET);
+    unsigned long int read_n = 0;
+    for (long int offset = 0; offset < op_offset; offset += read_n)
+    {
+        read_n = (op_offset - offset + 1) > BUFFER_SIZE ? BUFFER_SIZE : (op_offset - offset + 1);
+        if (fgets(buf, read_n, slice->fd) == NULL)
+        {
+            fatal("Unable to read from slice fd");
+        }
+        read_n = strlen(buf);
+        fputs(buf, wfd);
+    }
+
+    // Manipulate the character at this position.
+    if (op == OP_ADD)
+    {
+        // Write the character we want to insert.
+        fputc(arg, wfd);
+    }
+    else if (op == OP_DELETE)
+    {
+        // Skip the character we want to delete.
+        fseek(slice->fd, 1, SEEK_CUR);
+    }
+
+    // Write the characters after the inserted character.
+    size_t line_size = sizeof(char) * BUFFER_SIZE;
+    while (getline(&buf, &line_size, slice->fd) != -1)
+    {
+        fputs(buf, wfd);
+    }
+    free(buf);
+    fflush(wfd);
+
+    // Overwrite the file and reopen the file we're editing.
+    rename(wfname, fname);
+    fclose(wfd);
+    free(wfname);
+    slice->fd = freopen(fname, "r", slice->fd);
+}
+
+long int foffset_from_pos(editor *state, int y, int x)
+{
+    long int add_offset = state->slice->start_offset + x;
+    int row_offset = y;
+    fline *line = state->slice->line_data;
+    while (line != NULL && row_offset-- > 0)
+    {
+        add_offset += line->len;
+        line = line->next;
+    }
+    return add_offset;
+}
+
 int main(int argc, char *argv[])
 {
     // Check if a filename was passed.
@@ -208,57 +277,31 @@ int main(int argc, char *argv[])
                 wmove(state->winconf->win, y + 1, x);
             }
             break;
-        default:
-            if (comm > 0 && comm < 127)
+        case KEY_DC:
+        case KEY_BACKSPACE:
+            // Delete the character just before the cursor.
             {
-                char *wfname = malloc(sizeof(char) * strlen(argv[1]) + 2);
-                wfname[0] = '~';
-                strcpy(wfname + 1, argv[1]);
-                FILE *wfd = fopen(wfname, "w");
-
-                // Write the characters before the position we want to manipulate.
-                long int add_offset = state->slice->start_offset + x;
-                int row_offset = y;
-                fline *line = state->slice->line_data;
-                while (line != NULL && row_offset-- > 0)
+                long int del_offset = foffset_from_pos(state, y, x) - (comm == KEY_DC ? 0 : 1);
+                if (del_offset < 0)
                 {
-                    add_offset += line->len;
-                    line = line->next;
+                    break;
                 }
-                char *buf = malloc(sizeof(char) * BUFFER_SIZE);
-                fseek(state->slice->fd, 0, SEEK_SET);
-                unsigned long int read_n = 0;
-                for (long int offset = 0; offset < add_offset; offset += read_n)
-                {
-                    read_n = (add_offset - offset + 1) > BUFFER_SIZE ? BUFFER_SIZE : (add_offset - offset + 1);
-                    if (fgets(buf, read_n, state->slice->fd) == NULL)
-                    {
-                        fatal("Unable to read from slice fd");
-                    }
-                    read_n = strlen(buf);
-                    fputs(buf, wfd);
-                }
+                alter_file(state->slice, argv[1], OP_DELETE, del_offset, 0);
 
-                // Write the character we wanted to insert.
-                fputc(comm, wfd);
-
-                // Write the characters after the inserted character.
-                size_t line_size = sizeof(char) * BUFFER_SIZE;
-                while (getline(&buf, &line_size, state->slice->fd) != -1)
-                {
-                    fputs(buf, wfd);
-                }
-                free(buf);
-                fflush(wfd);
-
-                // Overwrite the file.
-                rename(wfname, argv[1]);
-                fclose(wfd);
-                free(wfname);
-                state->slice->fd = freopen(argv[1], "r", state->slice->fd);
-
+                // Update the displayed file.
                 update_and_print_file_slice(state, state->slice->start_line, state->winconf->lines);
-                wmove(state->winconf->win, y, x);
+                wmove(state->winconf->win, y, x - (comm == KEY_DC ? 0 : 1));
+            }
+            break;
+        default:
+            if (comm > 0 && comm < 127) // Any other ASCII value
+            {
+                // Add in the character.
+                alter_file(state->slice, argv[1], OP_ADD, foffset_from_pos(state, y, x), comm);
+
+                // Update the displayed file.
+                update_and_print_file_slice(state, state->slice->start_line, state->winconf->lines);
+                wmove(state->winconf->win, y, x + 1);
             }
             break;
         }
