@@ -1,5 +1,9 @@
 #include <stdio.h>
 
+// File operations.
+#define OP_ADD 1
+#define OP_DELETE 2
+
 typedef struct file_line
 {
     size_t len;
@@ -21,3 +25,4 @@ void free_slice(fslice *slice);
 void update_slice(fslice *slice, unsigned int start, unsigned int no_of_lines);
 bool has_next_line(fslice *slice);
 bool has_previous_line(fslice *slice);
+int alter_file(fslice *slice, char *fname, const short op, unsigned long int op_offset, char arg);

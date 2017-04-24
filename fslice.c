@@ -107,10 +107,6 @@ bool has_next_line(fslice *slice)
 {
     size_t line_size = sizeof(char) * 2;
     char *line = malloc(line_size);
-    if (line == NULL)
-    {
-        fatal("Unable to allocate memory for line");
-    }
     line[0] = '\0';
 
     ssize_t line_result = getline(&line, &line_size, slice->fd);
@@ -159,4 +155,59 @@ fslice *new_slice()
     slice->no_of_lines = 0;
     slice->start_line = 0;
     return slice;
+}
+
+int alter_file(fslice *slice, char *fname, const short op, unsigned long int op_offset, char arg)
+{
+    // Make a temporary file in the same directory. The temporary
+    // file name will be the same as the edited file, but with a tilde
+    // at the start.
+    char *wfname = malloc(sizeof(char) * strlen(fname) + 2);
+    wfname[0] = '~';
+    strcpy(wfname + 1, fname);
+    FILE *wfd = fopen(wfname, "w");
+
+    // Write the characters before the position we want to manipulate.
+    char *buf = malloc(sizeof(char) * BUFFER_SIZE);
+    fseek(slice->fd, 0, SEEK_SET);
+    unsigned long int read_n = 0;
+    for (long int offset = 0; offset < op_offset; offset += read_n)
+    {
+        read_n = (op_offset - offset + 1) > BUFFER_SIZE ? BUFFER_SIZE : (op_offset - offset + 1);
+        if (fgets(buf, read_n, slice->fd) == NULL)
+        {
+            return -1; // Unable to read data before offset.
+        }
+        read_n = strlen(buf);
+        fputs(buf, wfd);
+    }
+
+    // Manipulate the character at this position.
+    if (op == OP_ADD)
+    {
+        // Write the character we want to insert.
+        fputc(arg, wfd);
+    }
+    else if (op == OP_DELETE)
+    {
+        // Skip the character we want to delete.
+        fseek(slice->fd, 1, SEEK_CUR);
+    }
+
+    // Write the characters after the inserted character.
+    size_t line_size = sizeof(char) * BUFFER_SIZE;
+    while (getline(&buf, &line_size, slice->fd) != -1)
+    {
+        fputs(buf, wfd);
+    }
+    free(buf);
+    fflush(wfd);
+
+    // Overwrite the file and reopen the file we're editing.
+    rename(wfname, fname);
+    fclose(wfd);
+    free(wfname);
+    slice->fd = freopen(fname, "r", slice->fd);
+
+    return 0;
 }
