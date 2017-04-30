@@ -66,7 +66,7 @@ void update_slice(fslice *slice, unsigned int start, unsigned int no_of_lines)
     // Get the lines from the offset.
     size_t line_len = 0;
     fline *curr = NULL, *prev = NULL;
-    while (no_of_lines-- > 0)
+    while (no_of_lines > 0)
     {
         line_result = getline(&line, &line_size, slice->fd);
         line_len = strlen(line);
@@ -91,7 +91,10 @@ void update_slice(fslice *slice, unsigned int start, unsigned int no_of_lines)
             prev->next = curr;
         }
         prev = curr;
+        no_of_lines--;
     }
+
+    slice->no_of_lines = (slice->no_of_lines - no_of_lines);
 
     // Free the used resources.
     free(line);

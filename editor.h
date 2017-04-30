@@ -1,11 +1,20 @@
 #include "screen.h"
 #include "fslice.h"
 
+// Only columns 1 to COLS - 1 are used to display characters
+// of the file slice. The remaining columns are used to indicate
+// currently non-displayed characters.
+#define MIN_COLS (1)
+#define MAX_COLS(state) (state->winconf->cols - 2)
+#define MAX_LINES(state) (state->displayed_lines - 1)
+
 typedef struct editor
 {
     char *filename;
     ncurwin *winconf;
-    fslice *slice; // Lines of the file that are currently visible.
+    fslice *slice;                // Lines of the file that are currently visible.
+    unsigned int left_margin;     // The number of columns on the left that are not displayed.
+    unsigned int displayed_lines; // The number of lines currently displayed.
 } editor;
 
 editor *new_editor();
