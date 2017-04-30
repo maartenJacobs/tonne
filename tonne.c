@@ -1,13 +1,16 @@
-#include <curses.h>
+#include <ncursesw/ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <locale.h>
 
 #include "editor.h"
 
 int main(int argc, char *argv[])
 {
+    setlocale(LC_ALL, "");
+
     // Check if a filename was passed.
     if (argc != 2)
     {

@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-Wall -I. -g
 VALGRIND_CFLAGS=$(CFLAGS) -O0
-LDFLAGS=-lncurses
+LDFLAGS=-lncursesw
 
 tonne: tonne.o fslice.o screen.o editor.o
 	$(CC) -o tonne tonne.o fslice.o screen.o editor.o $(CFLAGS) $(LDFLAGS)
