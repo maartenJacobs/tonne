@@ -1,4 +1,4 @@
-#include <curses.h>
+#include <ncursesw/curses.h>
 
 typedef struct ncurses_window
 {
