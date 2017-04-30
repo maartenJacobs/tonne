@@ -8,10 +8,11 @@ ncurwin *init_screen()
     winconf->win = initscr();
     winconf->lines = LINES;
     winconf->cols = COLS;
-    cbreak();                   // Do not wait for ENTER to send characters.
-    raw();                      // Pass on any entered characters.
-    noecho();                   // Do not print entered characters.
+    raw();
+    nonl();
+    noecho();
     keypad(winconf->win, true); // Enable handling of function keys and arrow keys.
+    set_escdelay(50);           // Pass ESC faster.
 
     return winconf;
 }

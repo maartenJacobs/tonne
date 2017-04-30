@@ -1,6 +1,6 @@
 CC=gcc
-CFLAGS=-Wall -I.
-VALGRIND_CFLAGS=$(CFLAGS) -O0 -g
+CFLAGS=-Wall -I. -g
+VALGRIND_CFLAGS=$(CFLAGS) -O0
 LDFLAGS=-lncurses
 
 tonne: tonne.o fslice.o screen.o editor.o
